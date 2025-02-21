@@ -1,84 +1,44 @@
 import { useCallback, useContext, useEffect, useState } from "react";
 import VrmViewer from "@/components/vrmViewer";
 import { ViewerContext } from "@/features/vrmViewer/viewerContext";
-import {
-  Message,
-  textsToScreenplay,
-  Screenplay,
-} from "@/features/messages/messages";
+import { Message, textsToScreenplay, Screenplay } from "@/features/messages/messages";
 import { speakCharacter } from "@/features/messages/speakCharacter";
 import { MessageInputContainer } from "@/components/messageInputContainer";
 import { SYSTEM_PROMPT } from "@/features/constants/systemPromptConstants";
 import { KoeiroParam, DEFAULT_KOEIRO_PARAM } from "@/features/constants/koeiroParam";
 import { getChatResponseStream } from "@/features/chat/openAiChat";
-import { M_PLUS_2, Montserrat } from "next/font/google";
-import { Introduction } from "@/components/introduction";
-import { Menu } from "@/components/menu";
-import { GitHubLink } from "@/components/githubLink";
-import { Meta } from "@/components/meta";
 import { ElevenLabsParam, DEFAULT_ELEVEN_LABS_PARAM } from "@/features/constants/elevenLabsParam";
 import { buildUrl } from "@/utils/buildUrl";
 import { websocketService } from '../services/websocketService';
 import { MessageMiddleOut } from "@/features/messages/messageMiddleOut";
-
-const m_plus_2 = M_PLUS_2({
-  variable: "--font-m-plus-2",
-  display: "swap",
-  preload: false,
-});
-
-const montserrat = Montserrat({
-  variable: "--font-montserrat",
-  display: "swap",
-  subsets: ["latin"],
-});
-
-type LLMCallbackResult = {
-  processed: boolean;
-  error?: string;
-};
+import NavBar from "../components/navBar";
+import { ChatLog } from "@/components/chatLog";
 
 export default function Home() {
   const { viewer } = useContext(ViewerContext);
 
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
-  const [openAiKey, setOpenAiKey] = useState("");
-  const [elevenLabsKey, setElevenLabsKey] = useState("");
-  const [elevenLabsParam, setElevenLabsParam] = useState<ElevenLabsParam>(DEFAULT_ELEVEN_LABS_PARAM);
-  const [koeiroParam, setKoeiroParam] = useState<KoeiroParam>(DEFAULT_KOEIRO_PARAM);
   const [chatProcessing, setChatProcessing] = useState(false);
   const [chatLog, setChatLog] = useState<Message[]>([]);
   const [assistantMessage, setAssistantMessage] = useState("");
   const [backgroundImage, setBackgroundImage] = useState<string>('');
-  const [restreamTokens, setRestreamTokens] = useState<any>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  // needed because AI speaking could involve multiple audios being played in sequence
   const [isAISpeaking, setIsAISpeaking] = useState(false);
-  const [openRouterKey, setOpenRouterKey] = useState<string>(() => {
-    // Try to load from localStorage on initial render
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('openRouterKey') || '';
-    }
-    return '';
-  });
+
+  // ✅ 환경 변수에서 API 키 가져오기
+  const openAiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY || "";
+  const elevenLabsKey = process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY || "";
+  const openRouterKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY || "";
+
+  const [elevenLabsParam, setElevenLabsParam] = useState<ElevenLabsParam>(DEFAULT_ELEVEN_LABS_PARAM);
+  const [koeiroParam, setKoeiroParam] = useState<KoeiroParam>(DEFAULT_KOEIRO_PARAM);
 
   useEffect(() => {
     if (window.localStorage.getItem("chatVRMParams")) {
-      const params = JSON.parse(
-        window.localStorage.getItem("chatVRMParams") as string
-      );
+      const params = JSON.parse(window.localStorage.getItem("chatVRMParams") as string);
       setSystemPrompt(params.systemPrompt);
       setElevenLabsParam(params.elevenLabsParam);
       setChatLog(params.chatLog);
-    }
-    if (window.localStorage.getItem("elevenLabsKey")) {
-      const key = window.localStorage.getItem("elevenLabsKey") as string;
-      setElevenLabsKey(key);
-    }
-    // load openrouter key from localStorage
-    const savedOpenRouterKey = localStorage.getItem('openRouterKey');
-    if (savedOpenRouterKey) {
-      setOpenRouterKey(savedOpenRouterKey);
     }
     const savedBackground = localStorage.getItem('backgroundImage');
     if (savedBackground) {
@@ -86,117 +46,39 @@ export default function Home() {
     }
   }, []);
 
+  // useEffect(() => {
+  //   setChatLog([]); // ✅ 대화 기록 초기화
+  //   window.localStorage.removeItem("chatVRMParams"); // ✅ 로컬스토리지도 삭제
+  // }, []);
+  
+
   useEffect(() => {
     process.nextTick(() => {
-      window.localStorage.setItem(
-        "chatVRMParams",
-        JSON.stringify({ systemPrompt, elevenLabsParam, chatLog })
-      )
-
-      // store separately to be backward compatible with local storage data
-      window.localStorage.setItem("elevenLabsKey", elevenLabsKey);
-    }
-    );
+      window.localStorage.setItem("chatVRMParams", JSON.stringify({ systemPrompt, elevenLabsParam, chatLog }));
+    });
   }, [systemPrompt, elevenLabsParam, chatLog]);
 
-  useEffect(() => {
-    if (backgroundImage) {
-      document.body.style.backgroundImage = `url(${backgroundImage})`;
-      // document.body.style.backgroundSize = 'cover';
-      // document.body.style.backgroundPosition = 'center';
-    } else {
-      document.body.style.backgroundImage = `url(${buildUrl("/bg-c.png")})`;
-    }
-  }, [backgroundImage]);
-
-  const handleChangeChatLog = useCallback(
-    (targetIndex: number, text: string) => {
-      const newChatLog = chatLog.map((v: Message, i) => {
-        return i === targetIndex ? { role: v.role, content: text } : v;
-      });
-
-      setChatLog(newChatLog);
-    },
-    [chatLog]
-  );
-
-  /**
-   * 文ごとに音声を直接でリクエストしながら再生する
-   */
-  const handleSpeakAi = useCallback(
-    async (
-      screenplay: Screenplay,
-      elevenLabsKey: string,
-      elevenLabsParam: ElevenLabsParam,
-      onStart?: () => void,
-      onEnd?: () => void
-    ) => {
-      setIsAISpeaking(true);  // Set speaking state before starting
-      try {
-        await speakCharacter(
-          screenplay, 
-          elevenLabsKey, 
-          elevenLabsParam, 
-          viewer, 
-          () => {
-            setIsPlayingAudio(true);
-            console.log('audio playback started');
-            onStart?.();
-          }, 
-          () => {
-            setIsPlayingAudio(false);
-            console.log('audio playback completed');
-            onEnd?.();
-          }
-        );
-      } catch (error) {
-        console.error('Error during AI speech:', error);
-      } finally {
-        setIsAISpeaking(false);  // Ensure speaking state is reset even if there's an error
-      }
-    },
-    [viewer]
-  );
-
-  /**
-   * アシスタントとの会話を行う
-   */
   const handleSendChat = useCallback(
     async (text: string) => {
       const newMessage = text;
-      if (newMessage == null) return;
+      if (!newMessage) return;
 
       setChatProcessing(true);
-      // Add user's message to chat log
-      const messageLog: Message[] = [
-        ...chatLog,
-        { role: "user", content: newMessage },
-      ];
+      const messageLog: Message[] = [...chatLog, { role: "user", content: newMessage }];
       setChatLog(messageLog);
 
-      // Process messages through MessageMiddleOut
       const messageProcessor = new MessageMiddleOut();
       const processedMessages = messageProcessor.process([
-        {
-          role: "system",
-          content: systemPrompt,
-        },
+        { role: "system", content: systemPrompt },
         ...messageLog,
       ]);
 
-      let localOpenRouterKey = openRouterKey;
-      if (!localOpenRouterKey) {
-        // fallback to free key for users to try things out
-        localOpenRouterKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY!;
-      }
+      const stream = await getChatResponseStream(processedMessages, openAiKey, openRouterKey).catch((e) => {
+        console.error(e);
+        return null;
+      });
 
-      const stream = await getChatResponseStream(processedMessages, openAiKey, localOpenRouterKey).catch(
-        (e) => {
-          console.error(e);
-          return null;
-        }
-      );
-      if (stream == null) {
+      if (!stream) {
         setChatProcessing(false);
         return;
       }
@@ -206,48 +88,26 @@ export default function Home() {
       let aiTextLog = "";
       let tag = "";
       const sentences = new Array<string>();
+
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-
           receivedMessage += value;
 
-          // console.log('receivedMessage');
-          // console.log(receivedMessage);
-
-          // 返答内容のタグ部分の検出
           const tagMatch = receivedMessage.match(/^\[(.*?)\]/);
           if (tagMatch && tagMatch[0]) {
             tag = tagMatch[0];
             receivedMessage = receivedMessage.slice(tag.length);
-
-            console.log('tag:');
-            console.log(tag);
           }
 
-          // 返答を一単位で切り出して処理する
-          const sentenceMatch = receivedMessage.match(
-            /^(.+[。．！？\n.!?]|.{10,}[、,])/
-          );
+          const sentenceMatch = receivedMessage.match(/^(.+[。．！？\n.!?]|.{10,}[、,])/);
           if (sentenceMatch && sentenceMatch[0]) {
             const sentence = sentenceMatch[0];
             sentences.push(sentence);
+            receivedMessage = receivedMessage.slice(sentence.length).trimStart();
 
-            console.log('sentence:');
-            console.log(sentence);
-
-            receivedMessage = receivedMessage
-              .slice(sentence.length)
-              .trimStart();
-
-            // 発話不要/不可能な文字列だった場合はスキップ
-            if (
-              !sentence.replace(
-                /^[\s\[\(\{「［（【『〈《〔｛«‹〘〚〛〙›»〕》〉』】）］」\}\)\]]+$/g,
-                ""
-              )
-            ) {
+            if (!sentence.replace(/^[\s\[\(\{「［（【『〈《〔｛«‹〘〚〛〙›»〕》〉』】）］」\}\)\]]+$/g, "")) {
               continue;
             }
 
@@ -255,106 +115,43 @@ export default function Home() {
             const aiTalks = textsToScreenplay([aiText], koeiroParam);
             aiTextLog += aiText;
 
-            // 文ごとに音声を生成 & 再生、返答を表示
             const currentAssistantMessage = sentences.join(" ");
-            handleSpeakAi(aiTalks[0], elevenLabsKey, elevenLabsParam, () => {
+            await speakCharacter(aiTalks[0], elevenLabsKey, elevenLabsParam, viewer, () => {
               setAssistantMessage(currentAssistantMessage);
             });
           }
         }
       } catch (e) {
-        setChatProcessing(false);
         console.error(e);
       } finally {
         reader.releaseLock();
+        setChatProcessing(false);
       }
 
-      // アシスタントの返答をログに追加
-      const messageLogAssistant: Message[] = [
-        ...messageLog,
-        { role: "assistant", content: aiTextLog },
-      ];
-
-      setChatLog(messageLogAssistant);
-      setChatProcessing(false);
+      setChatLog([...messageLog, { role: "assistant", content: aiTextLog }]);
     },
-    [systemPrompt, chatLog, handleSpeakAi, openAiKey, elevenLabsKey, elevenLabsParam, openRouterKey]
+    [systemPrompt, chatLog, openAiKey, elevenLabsKey, elevenLabsParam, openRouterKey, koeiroParam, viewer]
   );
 
-  const handleTokensUpdate = useCallback((tokens: any) => {
-    setRestreamTokens(tokens);
-  }, []);
-
-  // Set up global websocket handler
   useEffect(() => {
-    websocketService.setLLMCallback(async (message: string): Promise<LLMCallbackResult> => {
-      try {
-        if (isAISpeaking || isPlayingAudio || chatProcessing) {
-          console.log('Skipping message processing - system busy');
-          return {
-            processed: false,
-            error: 'System is busy processing previous message'
-          };
-        }
-        
-        await handleSendChat(message);
-        return {
-          processed: true
-        };
-      } catch (error) {
-        console.error('Error processing message:', error);
-        return {
-          processed: false,
-          error: error instanceof Error ? error.message : 'Unknown error occurred'
-        };
+    websocketService.setLLMCallback(async (message: string) => {
+      if (isAISpeaking || isPlayingAudio || chatProcessing) {
+        return { processed: false, error: 'System is busy processing previous message' };
       }
+
+      await handleSendChat(message);
+      return { processed: true };
     });
   }, [handleSendChat, chatProcessing, isPlayingAudio, isAISpeaking]);
 
-  const handleOpenRouterKeyChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newKey = event.target.value;
-    setOpenRouterKey(newKey);
-    localStorage.setItem('openRouterKey', newKey);
-  };
-
   return (
-    <div className={`${m_plus_2.variable} ${montserrat.variable}`}>
-      <Meta />
-      <Introduction
-        openAiKey={openAiKey}
-        onChangeAiKey={setOpenAiKey}
-        elevenLabsKey={elevenLabsKey}
-        onChangeElevenLabsKey={setElevenLabsKey}
-      />
-      <VrmViewer />
-      <MessageInputContainer
-        isChatProcessing={chatProcessing}
-        onChatProcessStart={handleSendChat}
-      />
-      <Menu
-        openAiKey={openAiKey}
-        elevenLabsKey={elevenLabsKey}
-        openRouterKey={openRouterKey}
-        systemPrompt={systemPrompt}
-        chatLog={chatLog}
-        elevenLabsParam={elevenLabsParam}
-        koeiroParam={koeiroParam}
-        assistantMessage={assistantMessage}
-        onChangeAiKey={setOpenAiKey}
-        onChangeElevenLabsKey={setElevenLabsKey}
-        onChangeSystemPrompt={setSystemPrompt}
-        onChangeChatLog={handleChangeChatLog}
-        onChangeElevenLabsParam={setElevenLabsParam}
-        onChangeKoeiromapParam={setKoeiroParam}
-        handleClickResetChatLog={() => setChatLog([])}
-        handleClickResetSystemPrompt={() => setSystemPrompt(SYSTEM_PROMPT)}
-        backgroundImage={backgroundImage}
-        onChangeBackgroundImage={setBackgroundImage}
-        onTokensUpdate={handleTokensUpdate}
-        onChatMessage={handleSendChat}
-        onChangeOpenRouterKey={handleOpenRouterKeyChange}
-      />
-      <GitHubLink />
+    <div className="relative w-screen h-screen flex flex-col">
+      <NavBar />
+      <div className="flex-grow">
+        <VrmViewer />
+      </div>
+      <ChatLog messages={chatLog} />
+      <MessageInputContainer isChatProcessing={chatProcessing} onChatProcessStart={handleSendChat} />
     </div>
   );
 }

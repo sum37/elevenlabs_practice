@@ -23,8 +23,14 @@ export const MessageInput = ({
   return (
     <div className="absolute bottom-0 z-20 w-screen">
       <div className="bg-base text-black">
-        <div className="mx-auto max-w-4xl p-16">
-          <div className="grid grid-flow-col gap-[8px] grid-cols-[min-content_1fr_min-content]">
+        <div className="mx-auto max-w-4xl p-16 flex">
+            <IconButton
+              iconName="24/Microphone"
+              className="bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled"
+              isProcessing={isMicRecording}
+              disabled={isChatProcessing}
+              onClick={onClickMicButton}
+            />
             <IconButton
               iconName="24/Microphone"
               className="bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled"
@@ -49,19 +55,6 @@ export const MessageInput = ({
               disabled={isChatProcessing || !userMessage}
               onClick={onClickSendButton}
             />
-          </div>
-        </div>
-        <div className="py-4 bg-[#413D43] text-center text-white font-Montserrat">
-          powered by&nbsp;
-          <a target="_blank" href="https://openrouter.ai/" className="underline">
-            OpenRouter
-          </a>,&nbsp;
-          <a target="_blank" href="https://beta.elevenlabs.io/" className="underline">
-            ElevenLabs
-          </a>,&nbsp;
-          <a target="_blank" href="https://vroid.com/" className="underline">
-            VRoid
-          </a>
         </div>
       </div>
     </div>
