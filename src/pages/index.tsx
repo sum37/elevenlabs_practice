@@ -13,6 +13,8 @@ import { websocketService } from '../services/websocketService';
 import { MessageMiddleOut } from "@/features/messages/messageMiddleOut";
 import NavBar from "../components/navBar";
 import { ChatLog } from "@/components/chatLog";
+import AuthContext from "@/context/AuthContext";
+import { useSession, signIn, signOut } from "next-auth/react";
 
 export default function Home() {
   const { viewer } = useContext(ViewerContext);
@@ -33,6 +35,11 @@ export default function Home() {
   const [elevenLabsParam, setElevenLabsParam] = useState<ElevenLabsParam>(DEFAULT_ELEVEN_LABS_PARAM);
   const [koeiroParam, setKoeiroParam] = useState<KoeiroParam>(DEFAULT_KOEIRO_PARAM);
 
+  const {data: session, status} = useSession();
+
+  console.log(session);
+  console.log("Session status:", status);
+  
   useEffect(() => {
     if (window.localStorage.getItem("chatVRMParams")) {
       const params = JSON.parse(window.localStorage.getItem("chatVRMParams") as string);
@@ -146,6 +153,20 @@ export default function Home() {
 
   return (
     <div className="relative w-screen h-screen flex flex-col">
+        <h1>로그인 상태 확인</h1>
+      <p>Session Status: {status}</p>
+      <pre>{JSON.stringify(session, null, 2)}</pre>
+
+      {status === "loading" ? (
+        <p>🔄 세션 로딩 중...</p> 
+      ) : session ? (
+        <button onClick={() => signOut()}>👋 로그아웃</button>
+      ) : (
+        <>
+          <p>🚫 로그인되지 않았습니다.</p>
+          <button onClick={() => signIn()}>🔑 로그인</button>
+        </>
+      )}
       <NavBar />
       <div className="flex-grow">
         <VrmViewer />
